@@ -2,7 +2,7 @@ import requests
 import json
 from flask import Flask, request, jsonify
 
-GOOGLE_API_KEY = 'AIzaSyBKGQBM9WjJRZpclWTOKPOZfa_qVj0wLcY'
+GOOGLE_API_KEY = ''
 GOOGLE_URL = f'https://www.googleapis.com/books/v1/volumes'
 
 OPEN_LIBRARY_URL = 'https://openlibrary.org'
