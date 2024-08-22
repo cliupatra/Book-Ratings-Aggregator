@@ -2,7 +2,7 @@ import requests
 
 # Set your API key and URL
 url = 'https://www.googleapis.com/books/v1/volumes'
-key = 'AIzaSyBKGQBM9WjJRZpclWTOKPOZfa_qVj0wLcY'
+key = ''
 book_id = 'zyTCAlFPjgYC?'
 
 # # Make the request
