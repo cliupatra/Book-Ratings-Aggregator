@@ -3,7 +3,7 @@ import json
 
 # Set your API key and URL
 GOOGLE_URL = 'https://www.googleapis.com/books/v1/volumes'
-GOOGLE_API_KEY = '123'
+GOOGLE_API_KEY = ''
 book_id = 'zyTCAlFPjgYC?'
 
 # # Make the request

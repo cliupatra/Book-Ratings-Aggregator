@@ -1,8 +1,10 @@
 import requests
+import re
 import json
 from flask import Flask, request, jsonify
+from collections import defaultdict
 
-GOOGLE_API_KEY = 'AIzaSyARpVh4NR03PVxDUQlXZCY-C6tZvy-h89c'
+GOOGLE_API_KEY = ''
 GOOGLE_URL = f'https://www.googleapis.com/books/v1/volumes'
 
 OPEN_LIBRARY_URL = 'https://openlibrary.org'
@@ -35,7 +37,7 @@ def fetch_google_book_details(book_id):
     average_rating = volume_info.get("averageRating", "No rating available")
     ratingsCount = volume_info.get(
         'ratingsCount', 'No one has rated the book yet')
-    return {'title': title, 'Author(s)': author, 'Ratings': average_rating, 'Ratings Count': ratingsCount, 'Book ID': book_id}
+    return {'title': title, 'Author(s)': author, 'Ratings': average_rating, 'Ratings Count': ratingsCount, 'Google ID': book_id}
 
 
 def fetch_openlibrary_book_details(book_id):
@@ -59,7 +61,7 @@ def fetch_openlibrary_book_details(book_id):
     average_rating = ratings_summary.get('average', 'no rating available')
     ratingsCount = ratings_summary.get('count', 'No ratings count available')
 
-    return {'title': title, 'Author(s)': author, 'Ratings': average_rating, 'Ratings Count': ratingsCount, 'Book ID' : book_id ,'Work Id': work_id}
+    return {'title': title, 'Author(s)': author, 'Ratings': average_rating, 'Ratings Count': ratingsCount, 'Open ID': book_id, 'Work Id': work_id}
 
 
 @app.route('/google_book', methods=['GET'])
@@ -176,31 +178,58 @@ def organize_openlibrary_results(query):
     book_list = []
 
     for book in results_list:
-        book_id = book.get('edition_key')[0]
-        book_details = fetch_openlibrary_book_details(book_id)
-        if book_details == 'Error: No Author available':
-            pass
+        book_id = book.get('edition_key')
+        if book_id is None:
+            book_list.append({'title': book.get('title'), 'Open ID' : 'No Edition Key'})
         else:
-            book_list.append(book_details)
+            book_details = fetch_openlibrary_book_details(book_id[0])
+            if book_details == 'Error: No Author available':
+                pass
+            else:
+                book_list.append(book_details)
     return book_list
 
 
-def aggregate_search_results(query):
+def merge_search_results(query):
     google_list = organize_google_results(query)
     openlibrary_list = organize_openlibrary_results(query)
 
-    book_list = []
-    for o_book in openlibrary_list:
-        title = o_book.get('title')
-        open_id = o_book.get('Book ID')
-        book = {}
-        for g_book in google_list:
-            if title in g_book.get('title'):
-                google_id = g_book.get('Book ID')
-                book = {'Google ID' : google_id}
-        book['Open ID'] = open_id
-        book_list.append({title : book})
-    return book_list
+    merged_list = google_list + openlibrary_list
+
+    return merged_list
+
+
+def normalize_title(title):
+    title = title.strip().lower()
+    title = re.sub(r'\s*\(.*?\)', '', title)
+    title = re.sub(r'\s*\[.*?\]', '', title)
+    title = re.sub(r':\s*.*$', '', title)
+    title = re.sub(r'\s*\-\s*.*$', '', title)
+    title = re.sub(r'\s+', ' ', title)
+    return title
+
+
+def aggregate_search_results(query):
+    merged_list = merge_search_results(query)
+    book_list = defaultdict(lambda: {'Google ID': [], 'Open ID': []})
+
+    for book in merged_list:
+        normalized_title = normalize_title(book.get('title'))
+        if "Google ID" in book:
+            book_list[normalized_title]["Google ID"].append(book["Google ID"])
+        if "Open ID" in book:
+            book_list[normalized_title]["Open ID"].append(book["Open ID"])
+    
+    aggregated_book_list = []
+    for title, ids in book_list.items():
+        book = {
+            'Normalized Title' : title,
+            'Google IDs' : ids['Google ID'],
+            'Open IDs' : ids['Open ID']
+        }
+        aggregated_book_list.append(book)
+    
+    return aggregated_book_list
 
 
 @app.route('/search', methods=['GET'])
@@ -208,37 +237,18 @@ def get_search_results():
     query = request.args.get('q')
 
     if query is None:
-        return 'Error: query paramter required'
+        return 'Error: query parameter required'
 
     google_results = aggregate_search_results(query)
     return google_results
 
-# print(aggregate_book_ratings('Sm5AKLXKxHgC', 'OL49950319M'))
-
-# print(aggregate_book_ratings('o8Y5AwAAQBAJ','OL26884833M'))
-
-# google = fetch_openlibrary_book_details('OL26816842M')
-# x = json.dumps(google, indent=4)
-# print(x)
 
 @app.route('/test_search', methods=['GET'])
 def test_search():
-    query = 'the iron trial'
+    query = "harry potter and the chamber"
     search_results = aggregate_search_results(query)
     return search_results
 
-
-# google = organize_google_results('the iron trial')
-# x = json.dumps(google, indent=4)
-# print(x)
-
-# google = organize_openlibrary_results('the iron trial')
-# x = json.dumps(google, indent=4)
-# print(x)
-
-# google = fetch_google_book_details('zyTCAlFPjgYC')
-# x = json.dumps(google, indent=4)
-# print(x)
 
 if __name__ == '__main__':
     app.run(debug=True)
