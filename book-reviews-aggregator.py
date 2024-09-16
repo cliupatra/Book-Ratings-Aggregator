@@ -58,7 +58,7 @@ def fetch_openlibrary_book_details(book_id):
     author = get_author_name(author_list)
 
     ratings_summary = get_rating_summary(work_id)
-    average_rating = ratings_summary.get('average', 'no rating available')
+    average_rating = ratings_summary.get('average', 'No rating available')
     ratingsCount = ratings_summary.get('count', 'No ratings count available')
 
     return {'title': title, 'Author(s)': author, 'Ratings': average_rating, 'Ratings Count': ratingsCount, 'Open ID': book_id, 'Work Id': work_id}
@@ -105,42 +105,6 @@ def get_open_library_book_details():
     return book_data
 
 
-def aggregate_book_ratings(google_book_id, openlibrary_book_id):
-    google_ratings = fetch_google_book_details(google_book_id)
-    open_library_ratings = fetch_openlibrary_book_details(openlibrary_book_id)
-
-    return [google_ratings, open_library_ratings]
-
-
-@app.route('/ratings', methods=['GET'])
-def get_book_ratings():
-    google_book_id = request.args.get('google_id')
-    openlibrary_book_id = request.args.get('openlibrary_id')
-
-    if google_book_id is None or openlibrary_book_id is None:
-        return 'You are missing a query parameter'
-
-    book_ratings = aggregate_book_ratings(google_book_id, openlibrary_book_id)
-
-    average_rating = 0
-    total_count = 0
-    title = book_ratings[0].get('title').lower()
-    author = book_ratings[0].get('Author(s)')
-
-    for rating in book_ratings:
-        if rating.get('title').lower() in title:
-            average_rating += rating.get('Ratings') * \
-                rating.get('Ratings Count')
-            total_count += rating.get('Ratings Count')
-        else:
-            return "Error: titles of the books don't match"
-
-    title = title.title()
-    average_rating = round(average_rating/total_count, 2)
-
-    return {'title': title, 'Author(s): ': author, 'Average rating: ': average_rating, 'Ratings Count: ': total_count}
-
-
 def search_google_books(query):
     google_response = requests.get(f'{GOOGLE_URL}', params={
                                    'q': query, 'maxResults': 10, 'startIndex': 0, 'key': GOOGLE_API_KEY})
@@ -167,7 +131,10 @@ def organize_google_results(query):
     for book in results_list:
         book_id = book.get('id')
         book_details = fetch_google_book_details(book_id)
-        book_list.append(book_details)
+        if book_details.get('Ratings Count') == "No one has rated the book yet":
+            pass
+        else:
+            book_list.append(book_details)
     return book_list
 
 
@@ -180,10 +147,11 @@ def organize_openlibrary_results(query):
     for book in results_list:
         book_id = book.get('edition_key')
         if book_id is None:
-            book_list.append({'title': book.get('title'), 'Open ID' : 'No Edition Key'})
+            book_list.append({'title': book.get('title'),
+                             'Open ID': 'No Edition Key'})
         else:
             book_details = fetch_openlibrary_book_details(book_id[0])
-            if book_details == 'Error: No Author available':
+            if book_details == 'Error: No Author available' or book_details.get('Ratings Count') == 0:
                 pass
             else:
                 book_list.append(book_details)
@@ -219,16 +187,16 @@ def aggregate_search_results(query):
             book_list[normalized_title]["Google ID"].append(book["Google ID"])
         if "Open ID" in book:
             book_list[normalized_title]["Open ID"].append(book["Open ID"])
-    
+
     aggregated_book_list = []
     for title, ids in book_list.items():
         book = {
-            'Normalized Title' : title,
-            'Google IDs' : ids['Google ID'],
-            'Open IDs' : ids['Open ID']
+            'Title': title.title(),
+            'Google IDs': ids['Google ID'],
+            'Open IDs': ids['Open ID']
         }
         aggregated_book_list.append(book)
-    
+
     return aggregated_book_list
 
 
@@ -239,16 +207,46 @@ def get_search_results():
     if query is None:
         return 'Error: query parameter required'
 
-    google_results = aggregate_search_results(query)
-    return google_results
-
-
-@app.route('/test_search', methods=['GET'])
-def test_search():
-    query = "harry potter and the chamber"
     search_results = aggregate_search_results(query)
     return search_results
 
 
+def aggregate_ratings(book):
+    google_ids = book.get('Google IDs')
+    open_ids = book.get('Open IDs')
+
+    total_rating = 0
+    total_count = 0
+
+    for id in google_ids:
+        google_book = fetch_google_book_details(id)
+        rating = google_book.get('Ratings')
+        rating_count = google_book.get('Ratings Count')
+
+        total_rating += rating * rating_count
+        total_count += rating_count
+
+    for id in open_ids:
+        open_book = fetch_openlibrary_book_details(id)
+        rating = open_book.get('Ratings')
+        rating_count = open_book.get('Ratings Count')
+
+        total_rating += rating * rating_count
+        total_count += rating_count
+
+    title = book.get('Title')
+    average_rating = round(total_rating/total_count, 2)
+
+    return {'Title': title, 'Average Rating': average_rating, 'Total Ratings:': total_count}
+
+
+@app.route('/test_search', methods=['GET'])
+def test_search():
+    query = "The Iron Trial"
+
+    search_results = aggregate_search_results(query)
+    return search_results
+
+print(search_google_books("Harry Potter and the Prisoner of Azkaban"))
 if __name__ == '__main__':
     app.run(debug=True)
